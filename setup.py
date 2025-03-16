@@ -21,8 +21,8 @@ setup(
     ],
     entry_points={
         'console_scripts': [
-            'wake=wakesleepmanager.cli:wake_cli',
-            'sleep=wakesleepmanager.cli:sleep_cli',
+            'awake=wakesleepmanager.cli:cli',
+            'wsleep=wakesleepmanager.cli:sleep_cli',
         ],
     },
     classifiers=[
