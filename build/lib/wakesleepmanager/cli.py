@@ -131,22 +131,22 @@ def list():
 def add(name: str = None):
     """Add a new device."""
     from .network_scanner import scan_network, get_device_name
-    
+
     if not name:
         name = click.prompt("Enter device name")
-    
+
     # Ask user for preferred input method
     input_method = click.prompt(
         "Choose input method",
         type=click.Choice(['scan', 'manual']),
         default='scan'
     )
-    
+
     if input_method == 'scan':
         # Scan for available devices
         console.print("[yellow]Scanning network for devices...[/yellow]")
         devices = scan_network()
-        
+
         if devices:
             # Create a table of discovered devices
             table = Table(show_header=True, header_style="bold magenta")
@@ -154,7 +154,7 @@ def add(name: str = None):
             table.add_column("IP Address")
             table.add_column("MAC Address")
             table.add_column("Hostname")
-            
+
             for i, device in enumerate(devices, 1):
                 hostname = get_device_name(device['ip_address']) or 'Unknown'
                 table.add_row(
@@ -163,10 +163,10 @@ def add(name: str = None):
                     device['mac_address'],
                     hostname
                 )
-            
+
             console.print(table)
             choice = click.prompt("Enter the number of the device to add", type=str)
-            
+
             if choice.isdigit() and 1 <= int(choice) <= len(devices):
                 selected_device = devices[int(choice) - 1]
                 ip_address = selected_device['ip_address']
@@ -178,7 +178,7 @@ def add(name: str = None):
         else:
             console.print("[yellow]No devices found. Switching to manual input.[/yellow]")
             input_method = 'manual'
-    
+
     if input_method == 'manual':
         ip_address = click.prompt("Enter IP address")
         mac_address = click.prompt("Enter MAC address")
@@ -193,7 +193,7 @@ def add(name: str = None):
         )
         device_manager.add_device(device)
         console.print(f"[green]Device '{name}' added successfully[/green]")
-        
+
         if click.confirm("Do you want to setup SSH to be able to use the sleep command?"):
             setup_ssh_config(name)
     except ValueError as e:
@@ -302,15 +302,42 @@ def setup_ssh_config(name: str):
         console.print(f"[red]Error: {str(e)}[/red]")
 
 def wake_cli():
-    """Entry point for the wake command.
-    
-    - Running 'wake' alone shows an interactive list of devices
-    - Running 'wake devicename' wakes up the specified device
-    """
-    # If a device name is provided directly
-    if len(sys.argv) > 1 and not sys.argv[1].startswith('-'):
-        device_name = sys.argv[1]
-        # Handle direct device name
+    """Entry point for the wake command."""
+    # Skip the command name (sys.argv[0])
+    args = sys.argv[1:]
+
+    # No arguments - show interactive list
+    if not args:
+        _wake_device_handler()
+        return
+
+    # Handle --help flag
+    if args[0] in ['--help', '-h']:
+        ctx = click.Context(cli)
+        print(cli.get_help(ctx))
+        return
+
+    # Handle subcommands
+    if args[0] == 'sleep' and len(args) > 1:
+        # Handle "wake sleep devicename"
+        device_name = args[1]
+        try:
+            device = device_manager.get_device(device_name)
+            if not device_manager.check_device_status(device_name):
+                console.print(f"[yellow]Device '{device_name}' is already sleeping[/yellow]")
+                return
+            try:
+                device_manager.sleep_device(device_name)
+                console.print(f"[green]Sent sleep signal to device '{device_name}'[/green]")
+            except (ValueError, RuntimeError) as e:
+                console.print(f"[red]Error: {str(e)}[/red]")
+        except KeyError:
+            console.print(f"[red]Device '{device_name}' not found[/red]")
+        return
+
+    elif args[0] == 'up' and len(args) > 1:
+        # Handle "wake up devicename"
+        device_name = args[1]
         try:
             device = device_manager.get_device(device_name)
             if device_manager.check_device_status(device_name):
@@ -321,9 +348,52 @@ def wake_cli():
         except KeyError:
             console.print(f"[red]Device '{device_name}' not found[/red]")
         return
-    
-    # Otherwise, show interactive device selection
-    _wake_device_handler()
+
+    elif args[0] == 'status' or args[0] == 'check':
+        # Handle "wake status" or "wake check"
+        if len(args) > 1:
+            # Check specific device
+            device_name = args[1]
+            try:
+                status = "Awake" if device_manager.check_device_status(device_name) else "Sleeping"
+                console.print(f"Device '{device_name}' is {status}")
+            except KeyError:
+                console.print(f"[red]Device '{device_name}' not found[/red]")
+        else:
+            # Show status of all devices
+            devices = device_manager.list_devices()
+            if not devices:
+                console.print("[yellow]No devices configured.[/yellow]")
+                return
+
+            table = Table(show_header=True)
+            table.add_column("Name", min_width=15)
+            table.add_column("Status", min_width=10)
+            table.add_column("IP Address", min_width=15)
+
+            for device in devices:
+                status = "Awake" if device_manager.check_device_status(device.name) else "Sleeping"
+                table.add_row(device.name, status, device.ip_address)
+
+            console.print(table)
+        return
+
+    elif args[0] == 'list':
+        # Handle "wake list"
+        list()
+        return
+
+    # Otherwise treat the first argument as a device name (wake devicename)
+    device_name = args[0]
+    try:
+        device = device_manager.get_device(device_name)
+        if device_manager.check_device_status(device_name):
+            console.print(f"[yellow]Device '{device_name}' is already awake[/yellow]")
+            return
+        device_manager.wake_device(device_name)
+        console.print(f"[green]Sent wake-up signal to device '{device_name}'[/green]")
+    except KeyError:
+        console.print(f"[red]Device '{device_name}' not found[/red]")
 
 def sleep_cli():
     """Entry point for wsleep command."""
@@ -344,7 +414,7 @@ def sleep_cli():
         except KeyError:
             console.print(f"[red]Device '{device_name}' not found[/red]")
         return
-    
+
     # Otherwise, show interactive device selection
     sleep_device()
 
