@@ -1,11 +1,12 @@
+
 """Device manager for WakeSleepManager."""
 
 import os
 import json
 import socket
+import logging
 import platform
 import subprocess
-import logging
 from dataclasses import dataclass, asdict, field
 from typing import Dict, List, Optional, Union
 from wakeonlan import send_magic_packet
@@ -13,7 +14,7 @@ import paramiko
 from ping3 import ping
 
 # Set up logging
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 @dataclass
@@ -42,7 +43,7 @@ class Device:
         mac = self.mac_address.replace(':', '').replace('-', '').replace('.', '')
         if len(mac) != 12 or not all(c in '0123456789abcdefABCDEF' for c in mac):
             raise ValueError(f"Invalid MAC address format: {self.mac_address}")
-
+        
         # Validate IP address format
         try:
             socket.inet_aton(self.ip_address)
@@ -58,7 +59,7 @@ class Device:
 
 class DeviceManager:
     """Manage network devices."""
-
+    
     def __init__(self):
         """Initialize the device manager."""
         self.config_dir = os.path.expanduser("~/.config/wakesleepmanager")
@@ -75,17 +76,17 @@ class DeviceManager:
         """Load devices from the configuration file."""
         if not os.path.exists(self.devices_file):
             return {}
-
+        
         try:
             with open(self.devices_file, 'r') as f:
                 devices_data = json.load(f)
-
+            
             devices = {}
             for name, data in devices_data.items():
                 ssh_config = None
                 if 'ssh_config' in data and data['ssh_config']:
                     ssh_config = SSHConfig(**data['ssh_config'])
-
+                
                 devices[name] = Device(
                     name=name,
                     ip_address=data['ip_address'],
@@ -108,119 +109,72 @@ class DeviceManager:
         """Add a new device."""
         if device.name in self.devices:
             raise ValueError(f"Device with name '{device.name}' already exists")
-
+        
         self.devices[device.name] = device
         self._save_devices()
-        logger.info(f"Device '{device.name}' added successfully")
 
     def get_device(self, name: str) -> Device:
         """Get a device by name."""
         if name not in self.devices:
             raise KeyError(f"Device '{name}' not found")
-
+        
         return self.devices[name]
 
     def update_device(self, name: str, device: Device):
         """Update an existing device."""
         if name not in self.devices:
             raise KeyError(f"Device '{name}' not found")
-
+        
         # Preserve SSH config if not provided in the new device
         if not device.ssh_config and self.devices[name].ssh_config:
             device.ssh_config = self.devices[name].ssh_config
-
+        
         self.devices[name] = device
         self._save_devices()
-        logger.info(f"Device '{name}' updated successfully")
 
     def remove_device(self, name: str):
         """Remove a device."""
         if name not in self.devices:
             raise KeyError(f"Device '{name}' not found")
-
+        
         del self.devices[name]
         self._save_devices()
-        logger.info(f"Device '{name}' removed successfully")
 
     def list_devices(self) -> List[Device]:
         """List all devices."""
         return list(self.devices.values())
 
     def check_device_status(self, name: str) -> bool:
-        """Check if a device is truly awake with high accuracy."""
+        """Check if a device is awake."""
         device = self.get_device(name)
         
-        # Fast port check - most reliable indicator of a truly awake device
-        common_ports = [22, 3389, 445, 80]  # SSH, RDP, SMB, HTTP
-        for port in common_ports:
-            try:
-                sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-                sock.settimeout(0.3)  # Very short timeout for speed
-                result = sock.connect_ex((device.ip_address, port))
-                sock.close()
-                if result == 0:  # Port is open
-                    return True
-            except Exception:
-                pass
-        
-        # Single quick ping as fallback
+        # Try to ping the device
         try:
-            response = ping(device.ip_address, timeout=0.5, size=56)
-            if response is not None:
-                # Additional verification to prevent false positives
-                # Try a second ping with different parameters
-                second_response = ping(device.ip_address, timeout=0.5, size=32)
-                if second_response is not None:
-                    return True
-        except Exception:
-            pass
-        
-        return False
-
-    def check_all_devices_status(self, devices=None):
-        """Check all devices in parallel for maximum speed."""
-        import concurrent.futures
-        
-        if devices is None:
-            devices = self.list_devices()
-        
-        results = {}
-        # Use ThreadPoolExecutor for parallel processing
-        with concurrent.futures.ThreadPoolExecutor(max_workers=len(devices)) as executor:
-            future_to_device = {
-                executor.submit(self.check_device_status, device.name): device.name
-                for device in devices
-            }
-            
-            for future in concurrent.futures.as_completed(future_to_device):
-                device_name = future_to_device[future]
-                try:
-                    results[device_name] = future.result()
-                except Exception:
-                    results[device_name] = False
-        
-        return results
+            response_time = ping(device.ip_address, timeout=2)
+            return response_time is not None
+        except Exception as e:
+            logger.debug(f"Ping failed for {name}: {e}")
+            return False
 
     def wake_device(self, name: str):
         """Wake up a device using Wake-on-LAN."""
         device = self.get_device(name)
-
+        
         # Send magic packet
         send_magic_packet(device.mac_address)
-        logger.info(f"Wake-up signal sent to device '{name}'")
+        logger.info(f"Sent wake-up signal to device '{name}'")
 
     def setup_ssh_config(self, name: str, username: str, password: str = None, key_path: str = None):
         """Set up SSH configuration for a device."""
         if name not in self.devices:
             raise KeyError(f"Device '{name}' not found")
-
+        
         if not password and not key_path:
             raise ValueError("Either password or key_path must be provided")
-
+        
         ssh_config = SSHConfig(username=username, password=password, key_path=key_path)
         self.devices[name].ssh_config = ssh_config
         self._save_devices()
-        logger.info(f"SSH configuration for device '{name}' updated successfully")
 
     def sleep_device(self, name: str):
         """Put a device to sleep using SSH with OS detection."""
@@ -277,65 +231,36 @@ class DeviceManager:
             
             # Send appropriate sleep command based on OS type
             if os_type == "Windows":
-                # Windows sleep commands with fallbacks
-                commands = [
-                    'shutdown /h',  # Hibernate
-                    'rundll32.exe powrprof.dll,SetSuspendState 0,1,0',  # Sleep
-                    'powercfg -hibernate off && powercfg -hibernate on && shutdown /h'  # Reset hibernate and try again
-                ]
+                # For Windows, use rundll32 to trigger sleep mode with proper command escaping
+                cmd = 'powershell -Command "Start-Process rundll32.exe -ArgumentList \'powrprof.dll,SetSuspendState 0,1,0\' -Verb RunAs"'
+                logger.info(f"Sending Windows sleep command: {cmd}")
+                client.exec_command(cmd)
+                # Don't wait for response - return immediately
                 
-                for cmd in commands:
-                    logger.info(f"Trying Windows sleep command: {cmd}")
-                    _, stdout, stderr = client.exec_command(f'{cmd} 2>&1')
-                    output = stdout.read().decode().strip()
-                    error = stderr.read().decode().strip()
-                    
-                    if not error:
-                        logger.info(f"Windows sleep command succeeded: {cmd}")
-                        break
-                    logger.info(f"Command failed, trying next. Error: {error}")
-                    
             elif os_type == "macOS":
-                # macOS sleep command
-                client.exec_command('pmset sleepnow')
-                logger.info("Sent macOS sleep command: pmset sleepnow")
+                # For macOS, use nohup to run in background
+                cmd = 'nohup pmset sleepnow > /dev/null 2>&1 &'
+                logger.info(f"Sending macOS sleep command: {cmd}")
+                client.exec_command(cmd)
+                # Don't wait for response
                 
             elif os_type == "Linux":
-                # Linux sleep commands with fallbacks
-                commands = [
-                    'systemctl suspend',  # Modern systemd systems
-                    'pm-suspend',         # Older systems
-                    'echo mem > /sys/power/state'  # Direct kernel interface
-                ]
+                # For Linux, use nohup to run in background
+                cmd = 'nohup sudo systemctl suspend > /dev/null 2>&1 &'
+                logger.info(f"Sending Linux sleep command: {cmd}")
+                client.exec_command(cmd)
+                # Don't wait for response
                 
-                for cmd in commands:
-                    logger.info(f"Trying Linux sleep command: {cmd}")
-                    _, stdout, stderr = client.exec_command(f'sudo {cmd} 2>&1 || {cmd} 2>&1')
-                    output = stdout.read().decode().strip()
-                    error = stderr.read().decode().strip()
-                    
-                    if not error:
-                        logger.info(f"Linux sleep command succeeded: {cmd}")
-                        break
-                    logger.info(f"Command failed, trying next. Error: {error}")
             else:
-                # Unknown OS, try generic approaches
-                logger.warning(f"Unknown OS type for device '{name}', trying generic sleep commands")
-                commands = [
-                    'systemctl suspend',  # Linux
-                    'pm-suspend',         # Linux
-                    'pmset sleepnow',     # macOS
-                    'shutdown /h',        # Windows
-                    'rundll32.exe powrprof.dll,SetSuspendState 0,1,0'  # Windows
-                ]
+                # Unknown OS, try generic approach with background execution
+                logger.warning(f"Unknown OS type for device '{name}', trying generic sleep command")
+                client.exec_command('nohup shutdown /h > /dev/null 2>&1 &')
                 
-                for cmd in commands:
-                    client.exec_command(f'{cmd} 2>/dev/null')
-                
-            logger.info(f"Device '{name}' sleep commands sent successfully")
+            logger.info(f"Device '{name}' sleep command sent successfully")
             return True
         except Exception as e:
             logger.error(f"Failed to put device '{name}' to sleep: {str(e)}")
             raise RuntimeError(f"Failed to put device '{name}' to sleep: {str(e)}")
         finally:
+            # Always close the client
             client.close()

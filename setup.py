@@ -19,12 +19,16 @@ setup(
         'python-dotenv>=1.0.0',
         'ping3>=4.0.4',
     ],
-    entry_points={
-        'console_scripts': [
-            'awake=wakesleepmanager.cli:cli',
-            'wsleep=wakesleepmanager.cli:sleep_cli',
-        ],
-    },
+   # In your setup.py file, ensure you have these entry points:
+entry_points={
+    'console_scripts': [
+        'wakemanager=wakesleepmanager.cli:cli',
+        'wake=wakesleepmanager.cli:wake_cli',
+        'wsleep=wakesleepmanager.cli:sleep_cli',
+    ],
+}
+
+,
     classifiers=[
         "Programming Language :: Python :: 3",
         "License :: OSI Approved :: MIT License",

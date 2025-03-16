@@ -1,54 +1,55 @@
-"""Network scanning functionality for device discovery."""
+"""Network scanner for WakeSleepManager."""
 
-import subprocess
+import os
 import re
-from typing import List, Dict, Optional
+import subprocess
+from typing import List, Dict
 
 def scan_network() -> List[Dict[str, str]]:
-    """Scan the local network for active devices.
-
-    Returns:
-        List of dictionaries containing device information with IP and MAC addresses.
-    """
+    """Scan the network for devices."""
+    devices = []
     try:
-        # Run arp -a to get the ARP table
-        result = subprocess.run(['arp', '-a'], capture_output=True, text=True)
-        if result.returncode != 0:
-            return []
-
-        devices = []
-        # Parse the output to extract IP and MAC addresses
-        for line in result.stdout.splitlines():
-            # Match IP and MAC addresses in the ARP output
-            match = re.search(r'\(([0-9.]+)\) at ([0-9a-fA-F:]+)', line)
-            if match:
-                ip_addr = match.group(1)
-                mac_addr = match.group(2)
-                if mac_addr != '(incomplete)':
-                    devices.append({
-                        'ip_address': ip_addr,
-                        'mac_address': mac_addr
-                    })
-
-        return devices
-    except (subprocess.SubprocessError, OSError):
-        return []
-
-def get_device_name(ip_address: str) -> Optional[str]:
-    """Try to get the hostname of a device using its IP address.
-
-    Args:
-        ip_address: The IP address to lookup.
-
-    Returns:
-        The hostname if found, None otherwise.
-    """
-    try:
-        result = subprocess.run(['host', ip_address], capture_output=True, text=True)
+        # Use arp-scan or nmap to discover devices
+        result = subprocess.run(['arp-scan', '--localnet'], capture_output=True, text=True)
         if result.returncode == 0:
-            match = re.search(r'domain name pointer ([\w.-]+)', result.stdout)
-            if match:
-                return match.group(1)
-    except (subprocess.SubprocessError, OSError):
+            # Parse arp-scan output
+            for line in result.stdout.splitlines():
+                match = re.match(r'^([\d.]+)\s+([\w:]+)\s+(.*)$', line)
+                if match:
+                    ip_address, mac_address, _ = match.groups()
+                    devices.append({
+                        'ip_address': ip_address,
+                        'mac_address': mac_address
+                    })
+    except FileNotFoundError:
+        # Fallback to nmap if arp-scan is not available
+        try:
+            result = subprocess.run(['nmap', '-sn', '192.168.1.0/24'], capture_output=True, text=True)
+            if result.returncode == 0:
+                # Parse nmap output
+                for line in result.stdout.splitlines():
+                    match = re.match(r'^Nmap scan report for ([\w.-]+) \(([\d.]+)\)$', line)
+                    if match:
+                        hostname, ip_address = match.groups()
+                        devices.append({
+                            'ip_address': ip_address,
+                            'mac_address': 'Unknown',
+                            'hostname': hostname
+                        })
+        except FileNotFoundError:
+            pass
+    return devices
+
+def get_device_name(ip_address: str) -> str:
+    """Get the hostname of a device by its IP address."""
+    try:
+        result = subprocess.run(['nslookup', ip_address], capture_output=True, text=True)
+        if result.returncode == 0:
+            # Parse nslookup output
+            for line in result.stdout.splitlines():
+                match = re.match(r'^Name:\s+([\w.-]+)$', line)
+                if match:
+                    return match.group(1)
+    except FileNotFoundError:
         pass
-    return None
+    return ''

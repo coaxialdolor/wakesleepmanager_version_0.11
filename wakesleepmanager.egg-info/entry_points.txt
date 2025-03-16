@@ -1,3 +1,4 @@
 [console_scripts]
-awake = wakesleepmanager.cli:cli
+wake = wakesleepmanager.cli:wake_cli
+wakemanager = wakesleepmanager.cli:cli
 wsleep = wakesleepmanager.cli:sleep_cli

@@ -35,20 +35,38 @@ wake add device
 
 ## Command Reference
 
-### Wake Commands
+### Primary Commands
+- `wake <subcommand>` - Main command for all functionality
+- `awake <subcommand>` - Alternative to `wake`, functions identically
+- `wsleep <device>` - Direct command to put a device to sleep
 
-- `wake <device>` - Wake up a specific device
-- `wake` - Show list of devices to wake
+### Wake/Awake Subcommands
+- `wake up <device>` - Wake up a specific device
+- `wake sleep <device>` - Put a specific device to sleep
 - `wake status` - Check status of all devices
 - `wake list` - List all configured devices
 - `wake add device` - Add a new device
 - `wake edit` - Edit an existing device
 
-### Sleep Commands
+### Examples
+```bash
+# Wake up a device
+wake up mypc
+# or
+awake up mypc
 
-- `sleep <device>` - Put a specific device to sleep
-- `sleep` - Show list of devices to put to sleep
-- `sleep add` - Configure SSH for sleep functionality
+# Put a device to sleep
+wake sleep mypc
+# or
+awake sleep mypc
+# or
+wsleep mypc
+
+# Check status of all devices
+wake status
+# or
+awake status
+```
 
 ## Requirements
 
