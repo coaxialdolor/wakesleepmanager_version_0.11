@@ -1,0 +1,13 @@
+README.md
+setup.py
+wakesleepmanager/__init__.py
+wakesleepmanager/__main__.py
+wakesleepmanager/cli.py
+wakesleepmanager/device_manager.py
+wakesleepmanager/network_scanner.py
+wakesleepmanager.egg-info/PKG-INFO
+wakesleepmanager.egg-info/SOURCES.txt
+wakesleepmanager.egg-info/dependency_links.txt
+wakesleepmanager.egg-info/entry_points.txt
+wakesleepmanager.egg-info/requires.txt
+wakesleepmanager.egg-info/top_level.txt
