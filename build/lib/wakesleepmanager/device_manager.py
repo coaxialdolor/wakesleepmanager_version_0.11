@@ -147,15 +147,59 @@ class DeviceManager:
         return list(self.devices.values())
 
     def check_device_status(self, name: str) -> bool:
-        """Check if a device is awake."""
+        """Check if a device is truly awake with high accuracy."""
         device = self.get_device(name)
-
-        # Try to ping the device
+        
+        # Fast port check - most reliable indicator of a truly awake device
+        common_ports = [22, 3389, 445, 80]  # SSH, RDP, SMB, HTTP
+        for port in common_ports:
+            try:
+                sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                sock.settimeout(0.3)  # Very short timeout for speed
+                result = sock.connect_ex((device.ip_address, port))
+                sock.close()
+                if result == 0:  # Port is open
+                    return True
+            except Exception:
+                pass
+        
+        # Single quick ping as fallback
         try:
-            response_time = ping(device.ip_address, timeout=2)
-            return response_time is not None
+            response = ping(device.ip_address, timeout=0.5, size=56)
+            if response is not None:
+                # Additional verification to prevent false positives
+                # Try a second ping with different parameters
+                second_response = ping(device.ip_address, timeout=0.5, size=32)
+                if second_response is not None:
+                    return True
         except Exception:
-            return False
+            pass
+        
+        return False
+
+    def check_all_devices_status(self, devices=None):
+        """Check all devices in parallel for maximum speed."""
+        import concurrent.futures
+        
+        if devices is None:
+            devices = self.list_devices()
+        
+        results = {}
+        # Use ThreadPoolExecutor for parallel processing
+        with concurrent.futures.ThreadPoolExecutor(max_workers=len(devices)) as executor:
+            future_to_device = {
+                executor.submit(self.check_device_status, device.name): device.name
+                for device in devices
+            }
+            
+            for future in concurrent.futures.as_completed(future_to_device):
+                device_name = future_to_device[future]
+                try:
+                    results[device_name] = future.result()
+                except Exception:
+                    results[device_name] = False
+        
+        return results
 
     def wake_device(self, name: str):
         """Wake up a device using Wake-on-LAN."""
@@ -179,7 +223,7 @@ class DeviceManager:
         logger.info(f"SSH configuration for device '{name}' updated successfully")
 
     def sleep_device(self, name: str):
-        """Put a device to sleep using SSH."""
+        """Put a device to sleep using SSH with OS detection."""
         device = self.get_device(name)
 
         if not device.ssh_config:
@@ -208,19 +252,87 @@ class DeviceManager:
                     timeout=5
                 )
 
-            # Determine the appropriate sleep command based on the system
-            system_type = platform.system()
-            if system_type == "Linux":
-                # Linux system
-                client.exec_command('systemctl suspend || pm-suspend || echo "Sleep command failed"')
-            elif system_type == "Darwin":
-                # macOS system
-                client.exec_command('pmset sleepnow')
+            # Detect OS type
+            logger.info(f"Detecting OS type for device '{name}'")
+            
+            # Try to get OS information using various commands
+            os_type = None
+            
+            # Try uname first (works on Linux and macOS)
+            _, stdout, _ = client.exec_command('uname -s 2>/dev/null || echo "Unknown"')
+            uname_output = stdout.read().decode().strip()
+            
+            if uname_output == "Darwin":
+                os_type = "macOS"
+            elif uname_output in ["Linux", "FreeBSD"]:
+                os_type = "Linux"
             else:
-                # Assume Windows or try a generic approach
-                client.exec_command('shutdown /h || echo "Sleep command failed"')
-
-            logger.info(f"Device '{name}' put to sleep successfully")
+                # Try Windows-specific command
+                _, stdout, _ = client.exec_command('systeminfo | findstr /B /C:"OS Name" 2>NUL || echo "Unknown"')
+                win_output = stdout.read().decode().strip()
+                if "Windows" in win_output:
+                    os_type = "Windows"
+            
+            logger.info(f"Detected OS type: {os_type or 'Unknown'}")
+            
+            # Send appropriate sleep command based on OS type
+            if os_type == "Windows":
+                # Windows sleep commands with fallbacks
+                commands = [
+                    'shutdown /h',  # Hibernate
+                    'rundll32.exe powrprof.dll,SetSuspendState 0,1,0',  # Sleep
+                    'powercfg -hibernate off && powercfg -hibernate on && shutdown /h'  # Reset hibernate and try again
+                ]
+                
+                for cmd in commands:
+                    logger.info(f"Trying Windows sleep command: {cmd}")
+                    _, stdout, stderr = client.exec_command(f'{cmd} 2>&1')
+                    output = stdout.read().decode().strip()
+                    error = stderr.read().decode().strip()
+                    
+                    if not error:
+                        logger.info(f"Windows sleep command succeeded: {cmd}")
+                        break
+                    logger.info(f"Command failed, trying next. Error: {error}")
+                    
+            elif os_type == "macOS":
+                # macOS sleep command
+                client.exec_command('pmset sleepnow')
+                logger.info("Sent macOS sleep command: pmset sleepnow")
+                
+            elif os_type == "Linux":
+                # Linux sleep commands with fallbacks
+                commands = [
+                    'systemctl suspend',  # Modern systemd systems
+                    'pm-suspend',         # Older systems
+                    'echo mem > /sys/power/state'  # Direct kernel interface
+                ]
+                
+                for cmd in commands:
+                    logger.info(f"Trying Linux sleep command: {cmd}")
+                    _, stdout, stderr = client.exec_command(f'sudo {cmd} 2>&1 || {cmd} 2>&1')
+                    output = stdout.read().decode().strip()
+                    error = stderr.read().decode().strip()
+                    
+                    if not error:
+                        logger.info(f"Linux sleep command succeeded: {cmd}")
+                        break
+                    logger.info(f"Command failed, trying next. Error: {error}")
+            else:
+                # Unknown OS, try generic approaches
+                logger.warning(f"Unknown OS type for device '{name}', trying generic sleep commands")
+                commands = [
+                    'systemctl suspend',  # Linux
+                    'pm-suspend',         # Linux
+                    'pmset sleepnow',     # macOS
+                    'shutdown /h',        # Windows
+                    'rundll32.exe powrprof.dll,SetSuspendState 0,1,0'  # Windows
+                ]
+                
+                for cmd in commands:
+                    client.exec_command(f'{cmd} 2>/dev/null')
+                
+            logger.info(f"Device '{name}' sleep commands sent successfully")
             return True
         except Exception as e:
             logger.error(f"Failed to put device '{name}' to sleep: {str(e)}")

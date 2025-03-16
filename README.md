@@ -1,61 +1,61 @@
 # WakeSleepManager
 
-A cross-platform tool to manage wake and sleep states of network devices.
+A powerful cross-platform tool to manage wake and sleep states of network devices.
 
 ## Features
 
-- Wake-on-LAN functionality
-- Remote sleep commands via SSH
-- Device management (add, remove, list)
-- Status checking
-- Cross-platform support (Windows, macOS, Linux)
+- **Wake devices** remotely using Wake-on-LAN
+- **Sleep devices** remotely via SSH
+- **Check status** of devices on your network
+- **Manage device list** with easy add/edit/remove operations
+- **Cross-platform compatibility** for macOS, Linux, and Windows
+- **Automatic OS detection** for proper sleep commands
 
 ## Installation
 
-Install directly from the current directory:
-
 ```bash
-pip install .
+pip install wakesleepmanager
 ```
 
-## Usage
+## Quick Start
 
-### Wake Commands
 ```bash
-# Wake a specific device
-wake device-name
+# Wake up a device
+wake mypc
 
-# Wake all devices
-wake
+# Put a device to sleep
+sleep mypc
 
-# Check device status
-wake check device-name
-
-# List all devices
-wake list
+# Check status of all devices
+wake status
 
 # Add a new device
-wake add
-
-# Remove a device
-wake remove device-name
+wake add device
 ```
+
+## Command Reference
+
+### Wake Commands
+
+- `wake <device>` - Wake up a specific device
+- `wake` - Show list of devices to wake
+- `wake status` - Check status of all devices
+- `wake list` - List all configured devices
+- `wake add device` - Add a new device
+- `wake edit` - Edit an existing device
 
 ### Sleep Commands
-```bash
-# Sleep a specific device
-sleep device-name
 
-# Sleep all devices
-sleep
-```
+- `sleep <device>` - Put a specific device to sleep
+- `sleep` - Show list of devices to put to sleep
+- `sleep add` - Configure SSH for sleep functionality
 
 ## Requirements
 
-- Python 3.6 or higher
+- Python 3.6+
 - Network connectivity to target devices
-- Wake-on-LAN enabled on target devices
-- SSH access for sleep functionality
+- Wake-on-LAN enabled on target devices for wake functionality
+- SSH access to target devices for sleep functionality
 
 ## Configuration
 

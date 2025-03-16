@@ -2,12 +2,7 @@
 
 import subprocess
 import re
-import logging
 from typing import List, Dict, Optional
-
-# Set up logging
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
-logger = logging.getLogger(__name__)
 
 def scan_network() -> List[Dict[str, str]]:
     """Scan the local network for active devices.
@@ -19,7 +14,6 @@ def scan_network() -> List[Dict[str, str]]:
         # Run arp -a to get the ARP table
         result = subprocess.run(['arp', '-a'], capture_output=True, text=True)
         if result.returncode != 0:
-            logger.error("Failed to retrieve ARP table")
             return []
 
         devices = []
@@ -33,13 +27,11 @@ def scan_network() -> List[Dict[str, str]]:
                 if mac_addr != '(incomplete)':
                     devices.append({
                         'ip_address': ip_addr,
-                        'mac_address': mac_addr.replace(':', '-')
+                        'mac_address': mac_addr
                     })
 
-        logger.info(f"Found {len(devices)} devices on the network")
         return devices
-    except (subprocess.SubprocessError, OSError) as e:
-        logger.error(f"Error scanning network: {e}")
+    except (subprocess.SubprocessError, OSError):
         return []
 
 def get_device_name(ip_address: str) -> Optional[str]:
@@ -57,6 +49,6 @@ def get_device_name(ip_address: str) -> Optional[str]:
             match = re.search(r'domain name pointer ([\w.-]+)', result.stdout)
             if match:
                 return match.group(1)
-    except (subprocess.SubprocessError, OSError) as e:
-        logger.error(f"Error getting hostname for {ip_address}: {e}")
+    except (subprocess.SubprocessError, OSError):
+        pass
     return None
